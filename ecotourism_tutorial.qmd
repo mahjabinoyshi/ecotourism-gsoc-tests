@@ -2,218 +2,257 @@
 title: "Ecotourism Tutorial"
 subtitle: "Joining occurrence, weather, and tourism data"
 author: "Mahjabin Siddika Oyshi"
+
 format:
   html:
     embed-resources: true
+    code-fold: true
+    code-tools: true
+    toc: true
+    theme: cosmo
 ---
+
 ```{r}
 #| label: setup
 #| message: false
 #| warning: false
 #| echo: false
-
 library(ecotourism)
 library(tidyverse)
+library(plotly)
+library(DT)
+library(leaflet)
 
 data(orchids)
 data(weather)
 data(tourism_quarterly)
 data(tourism_region)
+
 tourism_total <- tourism_quarterly |>
-  dplyr::group_by(ws_id, year, quarter) |>
-  dplyr::summarise(
+  group_by(ws_id, year, quarter) |>
+  summarise(
     total_trips = sum(trips, na.rm = TRUE),
     .groups = "drop"
   )
 ```
+
 ## Objectives
 
-In this tutorial you will work with orchid sightings from the
-`ecotourism` package, and link them to weather and tourism data.
-We will focus on Western Australia during September, when many orchids
-are flowering.
+In this tutorial you will work with orchid sightings from the `ecotourism` package, and link them to weather and tourism data. We will focus on Western Australia during September, when many orchids are flowering.
 
 By the end you should be able to:
 
-- filter occurrence records by state and month  
-- join occurrence data to daily weather using `ws_id` and `date`  
-- join occurrence data to quarterly tourism counts  
-- check how complete the joined data is  
+-   filter occurrence records by state and month\
+-   join occurrence data to daily weather using `ws_id` and `date`\
+-   join occurrence data to quarterly tourism counts\
+-   check how complete the joined data is
 
 ## Preparation
 
+**Setup note**\
+If you don’t have the package installed yet, run in a fresh R session:
+
+``` r
+# install.packages("pak")
+pak::pak("vahdatjavad/ecotourism")
+```
+
 We will use four linked datasets:
 
-- `orchids`: orchid occurrence records (2014–2024)  
-- `weather`: daily weather by station  
-- `tourism_quarterly`: quarterly domestic visitor counts by region  
-- `tourism_region`: tourism region names with coordinates and `ws_id`  
+-   `orchids`: orchid occurrence records (2014–2024)\
+-   `weather`: daily weather by station\
+-   `tourism_quarterly`: quarterly domestic visitor counts by region\
+-   
+    -   `tourism_quarterly`: quarterly domestic visitor counts by region\\
+-   `tourism_region`: tourism region names with coordinates and `ws_id`
+
+## Explore the orchid dataset
+
+```{r}
+#| echo: false
+datatable(
+  orchids,
+  options = list(pageLength = 8)
+)
+```
+
+Map of Orchid Sightings
+
+```{r}
+#| echo: false
+orchids_map <- orchids |>
+  filter(!is.na(obs_lon), !is.na(obs_lat)) |>
+  sample_n(500)
+
+leaflet(orchids_map) |>
+  addTiles() |>
+  addCircleMarkers(
+    lng = ~obs_lon,
+    lat = ~obs_lat,
+    radius = 3,
+    popup = ~paste0(
+      "Species: ", sci_name,
+      "<br>Date: ", date,
+      "<br>State: ", obs_state
+    )
+  )
+
+```
 
 ## Exercises
 
-### Question 1 — Western Australia, September
+### Question 1 — Western Australia in September
 
-In this question you will look at orchid sightings in Western Australia
-during September.
+In this question you will look at orchid sightings in Western Australia during September.
 
-1. Filter `orchids` to rows where `obs_state == "Western Australia"`
-   and `month == 9`.  
-2. Join these rows to `weather` using `ws_id` and `date`.  
-3. Count  
-   - how many sightings you have in total  
-   - how many of them have a non‑missing `max`
-     (daily maximum temperature)  
+1.  Filter `orchids` to rows where `obs_state == "Western Australia"` and `month == 9`.\
+2.  Join these rows to `weather` using `ws_id` and `date`.\
+3.  Count
+    -   how many sightings you have in total\
+    -   how many of them have a non‑missing `max` (daily maximum temperature)
 
-What does this tell you about how complete the weather data is for
-these sightings?
+What does this tell you about how complete the weather data is for these sightings?
 
 #### Solution 1
 
 ```{r}
 #| label: q1-solution
-#| echo: TRUE
+#| code-fold: true
 
 wa_sep <- orchids |>
-  dplyr::filter(
-    obs_state == "Western Australia",
-    month == 9
-  )
+  filter(obs_state == "Western Australia",
+         month == 9)
 
 wa_sep_weather <- wa_sep |>
-  dplyr::left_join(weather, by = c("ws_id", "date"))
+  left_join(weather, by = c("ws_id", "date"))
 
-# total September sightings in WA
-nrow(wa_sep)
+n_total <- nrow(wa_sep)
+n_weather <- sum(!is.na(wa_sep_weather$max))
 
-# sightings with weather data
-sum(!is.na(wa_sep_weather$max))
-
-# proportion missing max temperature
+n_total
+n_weather
 mean(is.na(wa_sep_weather$max))
 ```
-Only about 7% of September orchid sightings in Western Australia have a
-recorded maximum temperature, so the weather data is very incomplete.
-This suggests gaps in the weather records rather than a lack of orchid
-activity, and shows why updating the weather part of the package is
-important.
+
+Data completeness visualization
+
+```{r}
+#| echo: false
+
+wa_sep_weather |>
+  mutate(weather_available = !is.na(max)) |>
+  count(weather_available) |>
+  plot_ly(
+    labels = ~weather_available,
+    values = ~n,
+    type = "pie"
+  )
+```
+
+Only about 7% of September orchid sightings in Western Australia have a recorded maximum temperature (the pie chart shows that roughly 93% are missing), so the weather data is very incomplete. This suggests gaps in the weather records rather than a lack of orchid activity, and shows why updating the weather part of the package is important.
 
 ### Question 2 — Adding tourism
 
 Now bring in the tourism data.
 
-1. Start from the Western Australia September orchid data you used in
-   Question 1.
-2. Join it to the `tourism_total` table using `ws_id`, `year`, and
-   `quarter`. Remember that September is in quarter 3.
-3. For Western Australia, report:
-   - the total number of September orchid sightings
-   - the average `total_trips`
-   - the proportion of sightings that have a non‑missing `max`
-     temperature.
+1.  Start from the Western Australia September orchid data you used in Question 1.
+2.  Join it to the `tourism_total` table using `ws_id`, `year`, and `quarter`. Remember that September is in quarter 3.
+3.  For Western Australia, report:
+    -   the total number of September orchid sightings
+    -   the average `total_trips`
+    -   the proportion of sightings that have a non‑missing `max` temperature.
 
-What do these numbers suggest about how much tourism and weather
-information is available for the places where orchids are being
-recorded?
+What do these numbers suggest about how much tourism and weather information is available for the places where orchids are being recorded?
 
 #### Solution 2
 
 ```{r}
 #| label: q2-solution
-#| echo: TRUE
+#| code-fold: true
 
-# Western Australia, September orchids with quarter
 wa_sep_q <- orchids |>
-  dplyr::filter(
-    obs_state == "Western Australia",
-    month == 9
-  ) |>
-  dplyr::mutate(quarter = 3L)
+  filter(obs_state == "Western Australia",
+         month == 9) |>
+  mutate(quarter = 3L)
 
-# join tourism totals
 wa_sep_tour <- wa_sep_q |>
-  dplyr::left_join(
+  left_join(
     tourism_total,
     by = c("ws_id", "year", "quarter")
   )
 
-# join weather again so we still have max temperature
 wa_sep_full <- wa_sep_tour |>
-  dplyr::left_join(weather, by = c("ws_id", "date"))
+  left_join(weather, by = c("ws_id", "date"))
 
 summary_q2 <- wa_sep_full |>
-  dplyr::summarise(
-    n_sightings   = dplyr::n(),
-    mean_trips    = mean(total_trips, na.rm = TRUE),
+  summarise(
+    n_sightings = n(),
+    mean_trips = mean(total_trips, na.rm = TRUE),
     prop_with_max = mean(!is.na(max))
   )
 
 summary_q2
 ```
-There are 14,911 September orchid sightings in Western Australia, but
-the average tourism trip count at those stations is only about 33. Just
-under 7% of sightings have a recorded maximum temperature. This tells
-us that most orchid records sit in areas with relatively low reported
-tourism, and weather data is still very patchy for these locations.
+
+Interactive Summary Table
+
+```{r}
+datatable(summary_q2)
+```
+
+There are 14,911 September orchid sightings in Western Australia, but the average tourism trip count at those stations is only about 33. Just under 7% of sightings have a recorded maximum temperature. This tells us that most orchid records sit in areas with relatively low reported tourism, and weather data is still very patchy for these locations.
 
 ### Question 3 — Sightings vs tourism
 
-Using the joined data from Question 2:
+Now investigate whether tourism relates to recorded sightings.
 
-1. For each year in Western Australia, work out:
-   - total September orchid sightings
-   - average `total_trips`.
-2. Make a scatter plot with `total_trips` on the x‑axis and total
-   orchid sightings on the y‑axis.
+Tasks:
 
-Does it look like years with more visitors also have more recorded
-orchid sightings? How might observer effort explain any pattern you
-see?
+Compute yearly statistics
+
+Visualize the relationship
 
 #### Solution 3
 
 ```{r}
 #| label: q3-solution
-#| echo: TRUE
-#| fig-width: 6
-#| fig-height: 4
+#| code-fold: true
 
-# Western Australia, September orchids with quarter
-wa_sep_q <- orchids |>
-  dplyr::filter(
-    obs_state == "Western Australia",
-    month == 9
-  ) |>
-  dplyr::mutate(quarter = 3L)
-
-# join tourism totals
-wa_sep_tour <- wa_sep_q |>
-  dplyr::left_join(
-    tourism_total,
-    by = c("ws_id", "year", "quarter")
-  )
-
-# (optional) join weather to keep using all three tables
-wa_sep_full <- wa_sep_tour |>
-  dplyr::left_join(weather, by = c("ws_id", "date"))
-
-# yearly totals for WA, September
 yearly_wa <- wa_sep_tour |>
-  dplyr::group_by(year) |>
-  dplyr::summarise(
-    n_sightings = dplyr::n(),
-    mean_trips  = mean(total_trips, na.rm = TRUE),
+  group_by(year) |>
+  summarise(
+    n_sightings = n(),
+    mean_trips = mean(total_trips, na.rm = TRUE),
     .groups = "drop"
   )
 
 yearly_wa
-ggplot(yearly_wa,
-       aes(x = mean_trips, y = n_sightings)) +
-  geom_point() +
-  labs(
-    x = "Average quarterly tourism trips (WA, September)",
-    y = "Total orchid sightings (WA, September)",
-    title = "September orchid sightings vs tourism in Western Australia"
-  ) +
-  theme_minimal()
 ```
-Overall, there is a loose positive relationship between tourism and orchid sightings: years with higher average trip counts often have more recorded September sightings in Western Australia.
+
+Interactive Scatter Plot
+
+```{r}
+plot_ly(
+  yearly_wa,
+  x = ~mean_trips,
+  y = ~n_sightings,
+  type = "scatter",
+  mode = "markers+lines",
+  text = ~year
+) |>
+  layout(
+    title = "Tourism vs Orchid Sightings",
+    xaxis = list(title = "Average tourism trips"),
+    yaxis = list(title = "Orchid sightings")
+  )
+```
+
+Overall, there appears to be a weak positive relationship between tourism and orchid sightings. Years with higher average tourism trip counts tend to show more recorded September orchid sightings in Western Australia. However, this pattern is likely explained by observer effort rather than causation: when more tourists visit an area, there are simply more people available to observe and record orchids, which increases the number of reported sightings.
+
+\## Finishing up
+
+To explore further, you might:
+
+-   Re-run Question 1 using `inner_join()` instead of `left_join()` when adding tourism data. How do your counts change, and why?
+-   Try a different state or month (e.g., New South Wales in August). Do you see similar gaps in weather and tourism coverage?
+-   Replace the plotly scatter with a faceted `ggplot2` view by year to compare with the interactive version.
