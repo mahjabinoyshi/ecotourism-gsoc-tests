@@ -62,8 +62,6 @@ We will use four linked datasets:
 -   `orchids`: orchid occurrence records (2014–2024)\
 -   `weather`: daily weather by station\
 -   `tourism_quarterly`: quarterly domestic visitor counts by region\
--   
-    -   `tourism_quarterly`: quarterly domestic visitor counts by region\\
 -   `tourism_region`: tourism region names with coordinates and `ws_id`
 
 ## Explore the orchid dataset
