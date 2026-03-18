@@ -47,3 +47,5 @@ ggplot(top5, aes(x = paste0(date, "  |  ", hour, ":00h"), y = predicted)) +
     y = "Predicted Sightings"
   ) +
   theme_minimal()
+ggsave("hard_task_glowworms.png", width = 8, height = 5)
+
