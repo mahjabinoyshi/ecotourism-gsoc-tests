@@ -1,0 +1,241 @@
+---
+title: "Ecotourism Hard Task"
+author: "Mahjabin Siddika Oyshi"
+format: html
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Hard Task
+
+When I first approached this task, I assumed I would need a predictive model. But looking at the data, I realised we are not actually predicting future weather—only using historical patterns.I still used a Poisson model to estimate how expected sightings vary with weather and time, and then ranked the most favourable conditions.
+
+Because the response variable is a count (number of sightings per hour), a Poisson model is a natural starting point. I briefly checked the mean–variance relationship to see if this assumption was reasonable.
+
+## Glowworms: data exploration
+
+First I explored glowworm sightings and matching weather data.
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(ecotourism)
+
+data("glowworms")
+data("weather")
+
+joined <- glowworms |>
+  left_join(weather, by = c("date", "ws_id")) |>
+  mutate(month = month(date))
+
+hourly_counts <- joined |>
+  filter(!is.na(hour), !is.na(temp)) |>
+  group_by(date, hour) |>
+  summarise(
+    n_sightings = n(),
+    temp        = mean(temp, na.rm = TRUE),
+    prcp        = mean(prcp, na.rm = TRUE),
+    wind_speed  = mean(wind_speed, na.rm = TRUE),
+    dewp        = mean(dewp, na.rm = TRUE),
+    month       = first(month),
+    .groups = "drop"
+  )
+
+mean(hourly_counts$n_sightings)
+var(hourly_counts$n_sightings)
+var(hourly_counts$n_sightings) / mean(hourly_counts$n_sightings)
+
+ggplot(hourly_counts, aes(x = n_sightings)) +
+  geom_histogram(bins = 8, fill = "lightblue", color = "black") +
+  labs(
+    title = "Distribution of Glowworm Sightings per Hour",
+    x = "Number of Sightings per Date–Hour",
+    y = "Frequency"
+  )
+```
+
+``` markdown
+After joining and aggregating, only six date–hour rows remained for
+glowworms.This made the model unstable, with coefficients that were not estimable. Rather than forcing a model on insufficient data, I switched to the Gouldian Finch dataset, which has much better coverage.
+```
+
+## Gouldian Finch model
+
+```{r}
+library(lubridate)
+
+#Load data
+data("gouldian_finch")
+data("weather")
+
+#Joining Finch records with weather
+gould_joined <- gouldian_finch |>
+  left_join(
+    weather |> 
+      select(ws_id, date, temp, prcp, wind_speed, dewp),
+    by = c("ws_id", "date")
+  ) |>
+  mutate(month = month(date))
+
+#Count how many finches are seen in each date–hour slot and attach typical weather for that slot
+gould_hourly <- gould_joined |>
+  filter(!is.na(hour), !is.na(temp)) |>
+  group_by(date, hour) |>
+  summarise(
+    n_sightings = n(),
+    temp        = mean(temp,       na.rm = TRUE),
+    prcp        = mean(prcp,       na.rm = TRUE),
+    wind_speed  = mean(wind_speed, na.rm = TRUE),
+    dewp        = mean(dewp,       na.rm = TRUE),
+    month       = first(month),
+    .groups     = "drop"
+  )
+
+nrow(gould_hourly)        # check how many rows you have
+# The ratio is about 0.67, which is somewhat below 1, indicating mild underdispersion. While not a perfect Poisson fit, it is still reasonable for exploratory modelling. 
+
+# Prepare data for modelling: drop rows with missing predictors
+gould_mod <- gould_hourly |>
+  filter(!is.na(temp),
+         !is.na(prcp),
+         !is.na(wind_speed),
+         !is.na(dewp),
+         !is.na(month),
+         !is.na(hour))
+
+nrow(gould_mod)      # should match the number of rows used in the model
+# Check Poisson assumption for Gouldian Finch counts
+mean(gould_mod$n_sightings)
+var(gould_mod$n_sightings)
+var(gould_mod$n_sightings) / mean(gould_mod$n_sightings)
+
+# Poisson GLM on Finch counts
+gould_model <- glm(
+  n_sightings ~ temp + prcp + wind_speed + dewp + month + hour,
+  family = poisson,
+  data   = gould_mod
+)
+
+summary(gould_model)
+#Calculate Incident Rate Ratios(IRR)
+exp(coef(gould_model))
+
+# Score each date–hour and pull out the top 5 times
+gould_mod$predicted <- predict(gould_model, type = "response")
+
+gould_top5 <- gould_mod |>
+  arrange(desc(predicted)) |>
+  slice_head(n = 5)
+
+gould_top5
+
+# 7. Plot
+ggplot(gould_top5, aes(x = paste0(date, " | ", hour, ":00h"),
+                       y = predicted)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Top 5 Predicted Times to Spot Gouldian Finch",
+    x = "Date & Hour",
+    y = "Predicted Sightings"
+  ) +
+  theme_minimal()
+#weather effects are quite small: temperature, rain, wind, and time of day barely change expected sightings. Humidity and time of year matter a bit more—more humid days and later months in the season are linked to slightly higher Finch counts.
+# Example: predict Finch counts for a given weather/time combo
+new_data <- data.frame(
+  temp       = 25,      
+  prcp       = 0,
+  wind_speed = 3,
+  dewp       = 18,
+  month      = 6,
+  hour       = 7
+)
+#Check overdispersion
+
+predicted_counts <- predict(gould_model, newdata = new_data, type = "response")
+round(predicted_counts, 1)
+residual_deviance <- gould_model$deviance
+df_residual       <- gould_model$df.residual
+dispersion        <- residual_deviance / df_residual
+
+dispersion  # ~1 is fine; > 1.5 suggests overdispersion
+
+
+#Basic residual plot
+fitted_values      <- fitted(gould_model)
+pearson_residuals  <- residuals(gould_model, type = "pearson")
+
+plot(fitted_values, pearson_residuals,
+     xlab = "Fitted values", ylab = "Pearson residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, col = "red", lty = 2)
+```
+
+The variance–mean ratio for Finch counts is about 0.67, and the dispersion statistic is below 1, so a Poisson model is appropriate. The IRRs show very small effects for temperature, rain, wind, and hour, with slightly stronger positive effects for dew point (humidity) and month of year.
+
+The residuals vs fitted plot shows a roughly random scatter around zero without strong patterns, supporting that the Poisson model fits the Finch count data reasonably well.
+
+## Function: predict_top_sightings
+
+```{r}
+predict_top_sightings <- function(occurrence, n_top = 5) {
+
+  weather <- ecotourism::weather   # use built-in weather data
+
+  joined <- occurrence |>
+    dplyr::left_join(
+      weather |>
+        dplyr::select(ws_id, date, temp, prcp, wind_speed, dewp),
+      by = c("ws_id", "date")
+    ) |>
+    dplyr::mutate(month = lubridate::month(date))
+
+  hourly <- joined |>
+    dplyr::filter(
+      !is.na(hour),
+      !is.na(temp), !is.na(prcp),
+      !is.na(wind_speed), !is.na(dewp)
+    ) |>
+    dplyr::group_by(date, hour) |>
+    dplyr::summarise(
+      n_sightings = dplyr::n(),
+      temp        = mean(temp,       na.rm = TRUE),
+      prcp        = mean(prcp,       na.rm = TRUE),
+      wind_speed  = mean(wind_speed, na.rm = TRUE),
+      dewp        = mean(dewp,       na.rm = TRUE),
+      month       = dplyr::first(month),
+      .groups     = "drop"
+    )
+
+  model <- glm(
+    n_sightings ~ temp + prcp + wind_speed + dewp + month + hour,
+    family = poisson,  # or quasipoisson
+    data   = hourly
+  )
+
+  hourly$predicted <- predict(model, type = "response")
+
+  hourly |>
+    dplyr::arrange(dplyr::desc(predicted)) |>
+    dplyr::mutate(
+      rank       = dplyr::row_number(),
+      weekday    = weekdays(date),
+      month_name = lubridate::month(date, label = TRUE, abbr = FALSE)
+    ) |>
+    dplyr::select(
+      rank, month_name, weekday, hour, n_sightings,
+      mean_temp = temp, mean_prcp = prcp,
+      mean_wind = wind_speed, mean_dewp = dewp,
+      predicted
+    ) |>
+    dplyr::slice_head(n = n_top)
+}
+```
+```{r}
+gould_top5 <- predict_top_sightings(gouldian_finch, n_top = 5)
+gould_top5
+```
+The `predict_top_sightings()` function takes any occurrence and matching weather dataset, fits a Poisson model to hourly counts, and returns the top five date–hour combinations with the highest predicted sightings. Applied to the Gouldian Finch data, it suggests warm, humid mornings and afternoons in October and December, with about two birds expected in those hours.That said, most of the weather variables had very small effects, suggesting that short-term conditions like rain or temperature do not strongly influence sightings. I found this a bit unexpected, as I initially thought those factors would play a bigger role.
