@@ -17,7 +17,7 @@ I have completed three core tasks demonstrating proficiency in R, data engineeri
 
 ### 1. Easy Task: Ecotourism Tutorial
 
-**Objective:** demonstrate data joining and cleaning using `tidyverse`.
+**Objective:** Demonstrate data joining and cleaning using `tidyverse`.
 \* **Key Skills:** Data wrangling, joining spatial/temporal datasets, and Quarto documentation.
 \* **Live Link:** [View Interactive Tutorial](https://mahjabinoyshi.github.io/ecotourism-gsoc-tests/ecotourism_tutorial.html)
 
