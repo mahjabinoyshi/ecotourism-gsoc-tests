@@ -1,7 +1,9 @@
 ---
 title: "Ecotourism Hard Task"
 author: "Mahjabin Siddika Oyshi"
-format: html
+format: 
+  html:
+    embed-resources: true  # This puts the graphs inside the HTML file
 execute:
   echo: true
   warning: false
@@ -234,8 +236,10 @@ predict_top_sightings <- function(occurrence, n_top = 5) {
     dplyr::slice_head(n = n_top)
 }
 ```
+
 ```{r}
 gould_top5 <- predict_top_sightings(gouldian_finch, n_top = 5)
 gould_top5
 ```
+
 The `predict_top_sightings()` function takes any occurrence and matching weather dataset, fits a Poisson model to hourly counts, and returns the top five date–hour combinations with the highest predicted sightings. Applied to the Gouldian Finch data, it suggests warm, humid mornings and afternoons in October and December, with about two birds expected in those hours.That said, most of the weather variables had very small effects, suggesting that short-term conditions like rain or temperature do not strongly influence sightings. I found this a bit unexpected, as I initially thought those factors would play a bigger role.
