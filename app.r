@@ -60,7 +60,7 @@ ui <- dashboardPage(
       selected = 0
     ),
     
-    # NEW slicers: they must be inside dashboardSidebar
+    
     sliderInput(
       "min_sightings",
       "Minimum sightings at a location",
